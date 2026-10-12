@@ -79,6 +79,42 @@ contract SwarmHandler is Test {
         return ids.length;
     }
 
+    /// @dev Exercise v2's share independently of the four ETH prices, including
+    /// values outside 0..10000 and reachable steps near zero and 100%.
+    function proposeShare(uint256 who, uint16 share, bool validStep) external {
+        (uint64 s, uint64 f, uint64 l, uint64 c, uint16 current) = names.prices();
+        if (validStep) {
+            uint256 lower = (uint256(current) + 1) / 2;
+            uint256 pointLower = current > 100 ? current - 100 : 0;
+            if (pointLower < lower) lower = pointLower;
+            uint256 upper = uint256(current) * 2;
+            if (uint256(current) + 100 > upper) upper = uint256(current) + 100;
+            if (upper > 10_000) upper = 10_000;
+            share = uint16(bound(share, lower, upper));
+        }
+        SwarmPrices.Prices memory from = SwarmPrices.Prices(s, f, l, c, current);
+        SwarmPrices.Prices memory next = SwarmPrices.Prices(s, f, l, c, share);
+        bool allowed = _withinRails(from, next);
+        address proposer = proposers[who % 3];
+        uint256 beforeBalance = imd.balanceOf(proposer);
+        uint256 beforeTreasury = imd.balanceOf(intake.treasury());
+        vm.prank(proposer);
+        if (!allowed) {
+            vm.expectRevert(SwarmPrices.OutOfBounds.selector);
+            names.propose(next, 0.5 ether);
+            assertEq(imd.balanceOf(proposer), beforeBalance);
+        } else {
+            bytes32 id = names.propose(next, 0.5 ether);
+            ids.push(id);
+            lastSeen[id] = SwarmPrices.Status.Pending;
+            ++proposals;
+            assertEq(imd.balanceOf(proposer), beforeBalance - 0.5 ether);
+            assertEq(imd.balanceOf(intake.treasury()), beforeTreasury + 0.5 ether);
+            assertEq(names.imd6900ShareBps(), current, "a proposal alone cannot change the share");
+            assertEq(names.proposal(id).next.share, share);
+        }
+    }
+
     /// @dev Each price is drawn from a third of the current one to triple it, so most proposals sit at the 2x edges.
     function propose(uint256 who, uint256 s, uint256 f, uint256 l, uint256 c, uint256 fee) external {
         (uint64 cs, uint64 cf, uint64 cl, uint64 cc, uint16 csh) = names.prices();
@@ -125,7 +161,7 @@ contract SwarmHandler is Test {
         ttl = bound(ttl, 0, 2 days);
         bool expired = ttl == 0;
         uint64 expiresAt = uint64(expired ? block.timestamp - 1 : block.timestamp + ttl);
-        (Attestation memory a, bytes memory sig) = _attest(yes, panel, quorum, agreed, expiresAt, oracleKey);
+        (Attestation memory a, bytes memory sig) = _attest(id, yes, panel, quorum, agreed, expiresAt, oracleKey);
         bool strong = yes && panel >= 9 && quorum >= 7 && uint256(quorum) * 9 >= uint256(panel) * 7 && agreed >= quorum
             && !expired;
         SwarmPrices.Status before = names.proposal(id).status;
@@ -152,8 +188,8 @@ contract SwarmHandler is Test {
         if (ids.length == 0) return;
         bytes32 id = ids[which % ids.length];
         (Attestation memory a, bytes memory sig) = otherKey
-            ? _attest(true, 9, 7, 9, uint64(block.timestamp + 1 days), 0xBAD)
-            : _attestFor(true, 9, 7, 9, uint64(block.timestamp + 1 days), oracleKey, address(intake));
+            ? _attest(id, true, 9, 7, 9, uint64(block.timestamp + 1 days), 0xBAD)
+            : _attestFor(id, true, 9, 7, 9, uint64(block.timestamp + 1 days), oracleKey, address(intake));
         SwarmPrices.Status before = names.proposal(id).status;
         bool ok = intake.deliver(id, a, sig);
         assertFalse(ok, "a forged verdict was taken");
@@ -165,7 +201,8 @@ contract SwarmHandler is Test {
     function stranger(uint256 which, uint256 who) external {
         if (ids.length == 0) return;
         bytes32 id = ids[which % ids.length];
-        (Attestation memory a, bytes memory sig) = _attest(true, 9, 7, 9, uint64(block.timestamp + 1 days), oracleKey);
+        (Attestation memory a, bytes memory sig) =
+            _attest(id, true, 9, 7, 9, uint64(block.timestamp + 1 days), oracleKey);
         vm.prank(proposers[who % 3]);
         vm.expectRevert(SwarmPrices.NotIntake.selector);
         names.onVerdict(id, a, sig);
@@ -208,6 +245,7 @@ contract SwarmHandler is Test {
             assertEq(f, p.next.four);
             assertEq(l, p.next.long);
             assertEq(c, p.next.crew);
+            assertEq(sh, p.next.share);
             assertTrue(_withinRails(before, p.next), "an applied change broke a guardrail");
             assertEq(names.epoch(), epochBefore + 1);
             assertEq(names.lastChange(), block.timestamp);
@@ -224,6 +262,7 @@ contract SwarmHandler is Test {
             assertEq(f, before.four);
             assertEq(l, before.long);
             assertEq(c, before.crew);
+            assertEq(sh, before.share);
         }
     }
 
@@ -244,18 +283,26 @@ contract SwarmHandler is Test {
             if (b[i] < lo || b[i] > hi) return false;
             if (uint256(b[i]) > uint256(a[i]) * 2 || uint256(b[i]) * 2 < a[i]) return false;
         }
+        if (to.share > names.MAX_SHARE()) return false;
+        uint256 distance = to.share > from.share ? to.share - from.share : from.share - to.share;
+        if (distance > 100 && (uint256(to.share) * 2 < from.share || to.share > uint256(from.share) * 2)) return false;
         return to.short >= to.four && to.four >= to.long;
     }
 
-    function _attest(bool yes, uint16 panel, uint16 quorum, uint16 agreed, uint64 expiresAt, uint256 key)
-        internal
-        view
-        returns (Attestation memory, bytes memory)
-    {
-        return _attestFor(yes, panel, quorum, agreed, expiresAt, key, address(names));
+    function _attest(
+        bytes32 requestId,
+        bool yes,
+        uint16 panel,
+        uint16 quorum,
+        uint16 agreed,
+        uint64 expiresAt,
+        uint256 key
+    ) internal view returns (Attestation memory, bytes memory) {
+        return _attestFor(requestId, yes, panel, quorum, agreed, expiresAt, key, address(names));
     }
 
     function _attestFor(
+        bytes32 requestId,
         bool yes,
         uint16 panel,
         uint16 quorum,
@@ -265,7 +312,7 @@ contract SwarmHandler is Test {
         address forContract
     ) internal view returns (Attestation memory a, bytes memory sig) {
         a = Attestation({
-            requestId: keccak256(abi.encode("uuid", verdicts, block.timestamp)),
+            requestId: requestId,
             chainId: block.chainid,
             questionHash: keccak256("the question"),
             answerType: 0,
@@ -304,12 +351,15 @@ contract SwarmPricesInvariantTest is Base {
 
     /// @dev Prices are exactly what the last executed proposal set (or the start): nothing else moves them.
     function invariant_PricesChangeOnlyByExecution() public view {
-        (uint64 s, uint64 f, uint64 l, uint64 c,) = handler.expected();
+        (uint64 s, uint64 f, uint64 l, uint64 c, uint16 share) = handler.expected();
         SwarmPrices.Prices memory p = _prices();
         assertEq(p.short, s);
         assertEq(p.four, f);
         assertEq(p.long, l);
         assertEq(p.crew, c);
+        assertEq(p.share, share);
+        assertEq(names.imd6900ShareBps(), share);
+        assertEq(burner.shareBps(), share);
         assertEq(names.priceOf(bytes32("kek")), s);
         assertEq(names.priceOf(bytes32("pepe")), f);
         assertEq(names.priceOf(bytes32("frens")), l);
@@ -326,6 +376,7 @@ contract SwarmPricesInvariantTest is Base {
         }
         assertGe(p.short, p.four);
         assertGe(p.four, p.long);
+        assertLe(p.share, names.MAX_SHARE());
     }
 
     /// @dev The epoch counts applied changes, the proposal counter counts proposals, and the last change is the one

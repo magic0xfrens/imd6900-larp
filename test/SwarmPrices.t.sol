@@ -35,6 +35,7 @@ contract SwarmPricesTest is Base {
 
     /// @dev An attestation as IMD's oracle signs it: EIP-712 "IdentityMD Oracle" v2, for `forContract`.
     function _attest(
+        bytes32 requestId,
         bool answer,
         uint16 panel,
         uint16 quorum,
@@ -44,7 +45,7 @@ contract SwarmPricesTest is Base {
         uint256 key
     ) internal view returns (Attestation memory a, bytes memory sig) {
         a = Attestation({
-            requestId: bytes32(bytes16(keccak256("oracle uuid"))),
+            requestId: requestId,
             chainId: block.chainid,
             questionHash: keccak256("the question"),
             answerType: 0,
@@ -91,8 +92,8 @@ contract SwarmPricesTest is Base {
         sig = abi.encodePacked(r, s, v);
     }
 
-    function _yes() internal view returns (Attestation memory a, bytes memory sig) {
-        return _attest(true, 9, 7, 9, uint64(block.timestamp + 1 days), address(names), oracleKey);
+    function _yes(bytes32 requestId) internal view returns (Attestation memory a, bytes memory sig) {
+        return _attest(requestId, true, 9, 7, 9, uint64(block.timestamp + 1 days), address(names), oracleKey);
     }
 
     function _deliver(bytes32 id, Attestation memory a, bytes memory sig) internal returns (bool) {
@@ -183,7 +184,7 @@ contract SwarmPricesTest is Base {
     function test_ApprovedThenAnyoneExecutes() public {
         SwarmPrices.Prices memory next = _p(0.005 ether, 0.0012 ether, 0.0005 ether, 0.0005 ether);
         bytes32 id = _propose(next);
-        (Attestation memory a, bytes memory sig) = _yes();
+        (Attestation memory a, bytes memory sig) = _yes(id);
         assertTrue(_deliver(id, a, sig), "the callback fits the Intake's 200,000 gas");
         assertEq(uint8(_status(id)), uint8(SwarmPrices.Status.Approved));
 
@@ -210,7 +211,7 @@ contract SwarmPricesTest is Base {
     function test_ARejectedProposalChangesNothing() public {
         bytes32 id = _propose(_p(0.005 ether, 0.0012 ether, 0.0005 ether, 0.0005 ether));
         (Attestation memory a, bytes memory sig) =
-            _attest(false, 9, 7, 9, uint64(block.timestamp + 1 days), address(names), oracleKey);
+            _attest(id, false, 9, 7, 9, uint64(block.timestamp + 1 days), address(names), oracleKey);
         _deliver(id, a, sig);
         assertEq(uint8(_status(id)), uint8(SwarmPrices.Status.Rejected));
         vm.expectRevert(SwarmPrices.NotApproved.selector);
@@ -228,7 +229,14 @@ contract SwarmPricesTest is Base {
         for (uint256 i; i < weak.length; ++i) {
             bytes32 id = _propose(_p(0.005 ether, 0.0012 ether, 0.0005 ether, 0.0005 ether));
             (Attestation memory a, bytes memory sig) = _attest(
-                true, weak[i][0], weak[i][1], weak[i][2], uint64(block.timestamp + 1 days), address(names), oracleKey
+                id,
+                true,
+                weak[i][0],
+                weak[i][1],
+                weak[i][2],
+                uint64(block.timestamp + 1 days),
+                address(names),
+                oracleKey
             );
             _deliver(id, a, sig);
             assertEq(uint8(_status(id)), uint8(SwarmPrices.Status.Rejected));
@@ -238,7 +246,7 @@ contract SwarmPricesTest is Base {
     function test_AnExpiredVerdictIsARejection() public {
         bytes32 id = _propose(_p(0.005 ether, 0.0012 ether, 0.0005 ether, 0.0005 ether));
         (Attestation memory a, bytes memory sig) =
-            _attest(true, 9, 7, 9, uint64(block.timestamp - 1), address(names), oracleKey);
+            _attest(id, true, 9, 7, 9, uint64(block.timestamp - 1), address(names), oracleKey);
         _deliver(id, a, sig);
         assertEq(uint8(_status(id)), uint8(SwarmPrices.Status.Rejected));
     }
@@ -246,21 +254,21 @@ contract SwarmPricesTest is Base {
     function test_OnlyTheOraclesSignatureForThisContractCounts() public {
         bytes32 id = _propose(_p(0.005 ether, 0.0012 ether, 0.0005 ether, 0.0005 ether));
         (Attestation memory a, bytes memory sig) =
-            _attest(true, 9, 7, 9, uint64(block.timestamp + 1 days), address(names), 0xBAD);
+            _attest(id, true, 9, 7, 9, uint64(block.timestamp + 1 days), address(names), 0xBAD);
         assertFalse(_deliver(id, a, sig), "another key: refused");
-        (a, sig) = _attest(true, 9, 7, 9, uint64(block.timestamp + 1 days), address(links), oracleKey);
+        (a, sig) = _attest(id, true, 9, 7, 9, uint64(block.timestamp + 1 days), address(links), oracleKey);
         assertFalse(_deliver(id, a, sig), "signed for another contract: refused");
-        (a, sig) = _yes();
+        (a, sig) = _yes(id);
         sig[64] = sig[64] == bytes1(uint8(27)) ? bytes1(uint8(28)) : bytes1(uint8(27));
         assertFalse(_deliver(id, a, sig), "a tampered signature: refused");
         assertEq(uint8(_status(id)), uint8(SwarmPrices.Status.Pending), "still waiting for a real verdict");
-        (a, sig) = _yes();
+        (a, sig) = _yes(id);
         assertTrue(_deliver(id, a, sig));
     }
 
     function test_OnlyTheIntakeDeliversAndOnlyForItsOwnProposals() public {
         bytes32 id = _propose(_p(0.005 ether, 0.0012 ether, 0.0005 ether, 0.0005 ether));
-        (Attestation memory a, bytes memory sig) = _yes();
+        (Attestation memory a, bytes memory sig) = _yes(id);
         vm.expectRevert(SwarmPrices.NotIntake.selector);
         names.onVerdict(id, a, sig);
         vm.expectRevert(SwarmPrices.NotIntake.selector);
@@ -275,15 +283,59 @@ contract SwarmPricesTest is Base {
         bytes32 id = _propose(_p(0.005 ether, 0.0012 ether, 0.0005 ether, 0.0005 ether));
         assertTrue(intake.fail(id, 2, bytes32("disagreed")));
         assertEq(uint8(_status(id)), uint8(SwarmPrices.Status.Failed));
-        (Attestation memory a, bytes memory sig) = _yes();
+        (Attestation memory a, bytes memory sig) = _yes(id);
         assertFalse(_deliver(id, a, sig), "a closed proposal takes no verdict");
     }
 
     // --- executing ---
 
+    function test_AVerdictCannotApproveAnotherPendingProposal() public {
+        bytes32 first = _propose(_p(0.005 ether, 0.0012 ether, 0.0005 ether, 0.0005 ether));
+        SwarmPrices.Prices memory other = _p(0.008 ether, 0.002 ether, 0.0008 ether, 0.0008 ether);
+        other.share = 1380;
+        bytes32 second = _propose(other);
+        (Attestation memory a, bytes memory sig) = _yes(first);
+        assertTrue(_deliver(first, a, sig));
+        vm.prank(address(intake));
+        vm.expectRevert(SwarmPrices.BadVerdictSignature.selector);
+        names.onVerdict(second, a, sig);
+        assertEq(uint8(_status(second)), uint8(SwarmPrices.Status.Pending));
+        assertEq(names.proposal(second).decidedAt, 0);
+        vm.expectRevert(SwarmPrices.NotApproved.selector);
+        names.execute(second);
+        names.execute(first);
+        assertEq(names.imd6900ShareBps(), 690, "the unrelated share change was not approved");
+    }
+
+    function testFuzz_AWrongRequestCannotSettleAPendingProposal(bytes32 wrongRequest) public {
+        bytes32 id = _propose(_p(0.005 ether, 0.0012 ether, 0.0005 ether, 0.0005 ether));
+        vm.assume(wrongRequest != id);
+        (Attestation memory a, bytes memory sig) = _yes(wrongRequest);
+        assertFalse(_deliver(id, a, sig));
+        assertEq(uint8(_status(id)), uint8(SwarmPrices.Status.Pending));
+        assertEq(names.proposal(id).decidedAt, 0);
+        (a, sig) = _yes(id);
+        assertTrue(_deliver(id, a, sig), "a mismatched delivery does not close the request");
+        names.execute(id);
+        assertEq(names.priceOf(bytes32("frens")), 0.0005 ether);
+    }
+
+    function test_ChangingTheSignedRequestIdInvalidatesTheSignature() public {
+        bytes32 first = _propose(_p(0.005 ether, 0.0012 ether, 0.0005 ether, 0.0005 ether));
+        bytes32 second = _propose(_p(0.008 ether, 0.002 ether, 0.0008 ether, 0.0008 ether));
+        (Attestation memory a, bytes memory sig) = _yes(first);
+        a.requestId = second;
+        assertFalse(_deliver(second, a, sig), "matching the parameter cannot repair a signature for another id");
+        assertEq(uint8(_status(first)), uint8(SwarmPrices.Status.Pending));
+        assertEq(uint8(_status(second)), uint8(SwarmPrices.Status.Pending));
+        (a, sig) = _yes(second);
+        assertTrue(_deliver(second, a, sig));
+        assertFalse(_deliver(second, a, sig), "a matching verdict still settles only once");
+    }
+
     function _approved(SwarmPrices.Prices memory next) internal returns (bytes32 id) {
         id = _propose(next);
-        (Attestation memory a, bytes memory sig) = _yes();
+        (Attestation memory a, bytes memory sig) = _yes(id);
         _deliver(id, a, sig);
     }
 
@@ -377,9 +429,9 @@ contract SwarmShareTest is Base {
         p.share = share;
     }
 
-    function _yes() internal view returns (Attestation memory a, bytes memory sig) {
+    function _yes(bytes32 requestId) internal view returns (Attestation memory a, bytes memory sig) {
         a = Attestation({
-            requestId: bytes32(bytes16(keccak256("oracle uuid"))),
+            requestId: requestId,
             chainId: block.chainid,
             questionHash: keccak256("the question"),
             answerType: 0,
@@ -422,7 +474,8 @@ contract SwarmShareTest is Base {
                 address(names)
             )
         );
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(oracleKey, keccak256(abi.encodePacked("\x19\x01", domain, structHash)));
+        (uint8 v, bytes32 r, bytes32 s) =
+            vm.sign(oracleKey, keccak256(abi.encodePacked("\x19\x01", domain, structHash)));
         sig = abi.encodePacked(r, s, v);
     }
 
@@ -431,7 +484,7 @@ contract SwarmShareTest is Base {
         SwarmPrices.Prices memory next = _terms(share); // read before the prank: a read would take it
         vm.prank(proposer);
         bytes32 id = names.propose(next, 0.5 ether);
-        (Attestation memory a, bytes memory sig) = _yes();
+        (Attestation memory a, bytes memory sig) = _yes(id);
         intake.deliver(id, a, sig);
         names.execute(id);
         vm.warp(vm.getBlockTimestamp() + 7 days);
@@ -449,7 +502,7 @@ contract SwarmShareTest is Base {
         assertEq(burner.NAMES(), address(names), "the burner knows IMD Names");
         assertEq(names.imd6900ShareBps(), 690);
         assertEq(burner.shareBps(), 690);
-        assertEq(_burn(1000 ether), 1000 ether - 69 ether, "93.1% to IMD's burn");
+        assertEq(_burn(100 ether), 100 ether - 6.9 ether, "93.1% to IMD's burn");
         assertEq(imd.balanceOf(0x000000000000000000000000000000000000dEaD), 0, "nothing parked at 0x..dEaD");
     }
 
@@ -457,9 +510,13 @@ contract SwarmShareTest is Base {
         _set(1380);
         assertEq(names.imd6900ShareBps(), 1380);
         assertEq(burner.shareBps(), 1380);
-        assertEq(_burn(1000 ether), 1000 ether - 138 ether, "86.2% to IMD's burn");
+        assertEq(_burn(100 ether), 100 ether - 13.8 ether, "86.2% to IMD's burn");
     }
 
+    /// @dev The share can reach 100%, but one burn never sells the pair pool more than 2% of its $IMD depth (the
+    /// burner's PAIR_LEG_BPS; L-16): a leg that size is a loss to sandwich through the pair's fee whatever the
+    /// swarm voted, and the rest of the share goes to IMD's burn instead of a searcher. Before L-16 a 1,000 $IMD
+    /// burn at 100% sold all of it into a pool holding ~1,000 $IMD.
     function test_UpToAllOfIt() public {
         _set(1380);
         _set(2760);
@@ -467,8 +524,14 @@ contract SwarmShareTest is Base {
         _set(10_000);
         assertEq(burner.shareBps(), 10_000);
         uint256 supply = imd6900.totalSupply();
-        assertEq(_burn(1000 ether), 0, "all of it bought IMD6900: nothing left for IMD's burn");
+        uint256 room = _pairRoom();
+        assertApproxEqRel(room, 20 ether, 0.01e18, "2% of the pool's ~1,000 $IMD");
+        uint256 pmImd = imd.balanceOf(address(pm));
+        assertEq(_burn(1000 ether), 1000 ether - room, "all of it is the share, but only the pool's room buys IMD6900");
+        assertEq(imd.balanceOf(address(pm)) - pmImd, room, "exactly the room went into the pair pool");
         assertLt(imd6900.totalSupply(), supply, "and the IMD6900 was burned");
+        // a burn the pool can take whole at 100% is all IMD6900
+        assertEq(_burn(10 ether), 0, "under the room, all of it bought IMD6900: nothing left for IMD's burn");
     }
 
     function test_AndDownToNothing() public {
@@ -508,6 +571,17 @@ contract SwarmShareTest is Base {
         assertTrue(_contains(string(body), "IMD6900 share 6.9%"), "the current share");
         assertTrue(_contains(string(body), "IMD6900 share 13.8%"), "the proposed share");
         assertTrue(_contains(string(body), "the IMD6900 share is between 0% and 100%"), "the guideline");
+        // L-16: a rising share has a criterion of its own, the pair pool's depth, not only the bounds the contract
+        // already enforces
+        assertTrue(
+            _contains(
+                string(body),
+                "if the IMD6900 share rises, the IMD6900/$IMD pool can take it: the proposed share of the $IMD that 0.1 ETH buys on IMD's ETH/$IMD pool is at most 2% of the IMD6900/$IMD pool's $IMD depth"
+            ),
+            "the share's criterion"
+        );
+        assertTrue(_contains(string(body), "Answer true if all six hold"), "six guidelines");
+        assertTrue(_contains(string(body), "\"IMD6900/$IMD pool's $IMD depth\":\""), "the depth is defined");
     }
 
     function test_TheBurnerFallsBackTo6Point9() public {

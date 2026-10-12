@@ -11,6 +11,9 @@ import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {ModifyLiquidityParams} from "@uniswap/v4-core/src/types/PoolOperation.sol";
 import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
+import {FullMath} from "@uniswap/v4-core/src/libraries/FullMath.sol";
+import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
+import {PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 
 import {LARP} from "../src/LARP.sol";
 import {ILARP} from "../src/ILARP.sol";
@@ -120,8 +123,14 @@ contract MockIntake {
 
     address public immutable treasury = address(0x7EA5);
     uint256 public count;
+    bytes32 public nextRequestId;
     mapping(bytes32 => Ask) public asks;
     bytes public lastBody;
+
+    /// @dev A published signature vector has a fixed request id; its proposal must use that same id.
+    function setNextRequestId(bytes32 requestId) external {
+        nextRequestId = requestId;
+    }
 
     function requestWithFailure(
         bytes32,
@@ -134,6 +143,10 @@ contract MockIntake {
         require(amount >= 0.5 ether, "PriceNotMet");
         MockIMD(asset).transferFrom(msg.sender, treasury, amount);
         requestId = keccak256(abi.encode("intake", ++count));
+        if (nextRequestId != bytes32(0)) {
+            requestId = nextRequestId;
+            delete nextRequestId;
+        }
         asks[requestId] = Ask(msg.sender, body, callback.target, callback.selector, onFailure, amount);
         lastBody = body;
     }
@@ -258,8 +271,7 @@ abstract contract Base is Test {
 
     function _newBurner(address poolManager, address names_) internal returns (LARPBurner) {
         return new LARPBurner(
-            poolManager, address(imd), 10_000, 60, address(0), 10_000, 200, address(imd6900), 0, 60, address(0),
-            names_
+            poolManager, address(imd), 10_000, 60, address(0), 10_000, 200, address(imd6900), 0, 60, address(0), names_
         );
     }
 
@@ -269,6 +281,23 @@ abstract contract Base is Test {
 
     function _fillPair() internal {
         adder.add(pair, 1e23);
+    }
+
+    /// @dev The most $IMD one burn sells into a pair pool, as the burner caps it (PAIR_LEG_BPS): 2% of the pool's
+    /// virtual $IMD reserve at its price (liquidity / sqrtPrice with $IMD as currency0, liquidity * sqrtPrice as
+    /// currency1), 0 for an empty pool. Computed independently from the PoolManager's state.
+    function _pairRoomOf(V4PoolKey memory key) internal view returns (uint256) {
+        (uint160 sqrtPrice,,,) = StateLibrary.getSlot0(IPoolManager(address(pm)), PoolIdLibrary.toId(key));
+        uint128 liquidity = StateLibrary.getLiquidity(IPoolManager(address(pm)), PoolIdLibrary.toId(key));
+        if (sqrtPrice == 0 || liquidity == 0) return 0;
+        uint256 reserve = Currency.unwrap(key.currency0) == address(imd)
+            ? FullMath.mulDiv(liquidity, 1 << 96, sqrtPrice)
+            : FullMath.mulDiv(liquidity, sqrtPrice, 1 << 96);
+        return reserve * 200 / 10_000;
+    }
+
+    function _pairRoom() internal view returns (uint256) {
+        return _pairRoomOf(pair);
     }
 
     function _fillPool4() internal {
