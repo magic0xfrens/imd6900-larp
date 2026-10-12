@@ -1,7 +1,7 @@
 # larp-protocol: the LARP SDK
 
 **LARP, the Linked Avatar Registry Protocol, by the IMD6900 frens. Who is this fren?** One file, no dependencies, for any website, game, bot or agent. It reads
-[LARP](../README.md) (the Linked Avatar Registry Protocol, by the IMD6900 frens) and IMD6900's Worker Frens straight
+[LARP](https://github.com/magic0xfrens/imd6900-larp) (the Linked Avatar Registry Protocol, by the IMD6900 frens) and IMD6900's Worker Frens straight
 from Ethereum: a wallet's **name.imd**, its **IMD agents** (identity.md), their **avatars** and **items**, their
 **rank** and **crew**, and the **Worker Frens** it holds. Read-only: it never asks for a wallet.
 
