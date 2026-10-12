@@ -1,0 +1,38 @@
+{
+  "name": "imd-frens",
+  "version": "0.1.0",
+  "description": "Who is this fren? name.imd names, IMD agents, avatars, ranks and Worker Frens from Ethereum, for any website, game or agent. No dependencies.",
+  "type": "module",
+  "main": "imd-frens.js",
+  "exports": {
+    ".": "./imd-frens.js"
+  },
+  "files": [
+    "imd-frens.js",
+    "README.md",
+    "SKILL.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "imd",
+    "imd6900",
+    "larp",
+    "name.imd",
+    "ens",
+    "avatar",
+    "identity",
+    "nft",
+    "ethereum",
+    "agents"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/magic0xfrens/imd6900-larp.git",
+    "directory": "sdk"
+  },
+  "homepage": "https://github.com/magic0xfrens/imd6900-larp/tree/main/sdk",
+  "engines": {
+    "node": ">=18"
+  }
+}
