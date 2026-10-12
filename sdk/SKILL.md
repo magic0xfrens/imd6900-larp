@@ -1,9 +1,9 @@
 ---
-name: imd-frens
-description: Identify IMD frens on any website, game or bot: resolve name.imd names, read a wallet's IMD agents, avatars, items, rank and Worker Frens from Ethereum with the zero-dependency imd-frens module (or cast). Use when a site or app must show who a wallet is in the IMD ecosystem, gate something to frens, or display a name.imd badge.
+name: larp
+description: Identify IMD frens on any website, game or bot: resolve name.imd names, read a wallet's IMD agents, avatars, items, rank and Worker Frens from Ethereum with the zero-dependency larp-protocol SDK (or cast). Use when a site or app must show who a wallet is in the IMD ecosystem, gate something to frens, or display a name.imd badge.
 ---
 
-# imd-frens: identify IMD frens
+# LARP: identify IMD frens (the larp-protocol SDK)
 
 Use this when you build anything that shows or checks **who a wallet is in the IMD ecosystem**: a profile, a leaderboard,
 a game that gives frens a skin, a bot that greets agents by name. Read-only; never ask for a private key.
@@ -11,14 +11,14 @@ a game that gives frens a skin, a bot that greets agents by name. Read-only; nev
 ## In a web page or JS app
 
 ```js
-import { whois, isFren } from "https://cdn.jsdelivr.net/npm/imd-frens@0.1.0/imd-frens.js"; // or: npm i imd-frens
+import { whois, isFren } from "https://cdn.jsdelivr.net/npm/larp-protocol@0.1.0/larp.js"; // or: npm i larp-protocol
 const f = await whois(input); // input: "0x…" wallet | "kek.imd" | 15 (an identity.md id)
 // f = { address, name, imdId, avatar, agents, workerFrens, isFren, rank: { title, level }, crew, items }
 ```
 
 - Show `f.name` (else a short address), `f.avatar` as an `<img>`, `f.rank?.title` as a tag.
 - Gate with `await isFren(wallet)` (holds a Worker Fren or an IMD agent).
-- A ready badge: `<imd-fren who="0x…"></imd-fren>` after importing the module.
+- A ready badge: `<larp-fren who="0x…"></larp-fren>` after importing the module.
 - `null` from `whois(name)` means nobody holds that name.
 - Use your own RPC in production: `configure({ rpc: "https://…" })`.
 

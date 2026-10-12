@@ -1,24 +1,24 @@
 {
-  "name": "imd-frens",
+  "name": "larp-protocol",
   "version": "0.1.0",
-  "description": "Who is this fren? name.imd names, IMD agents, avatars, ranks and Worker Frens from Ethereum, for any website, game or agent. No dependencies.",
+  "description": "LARP, the Linked Avatar Registry Protocol, by the IMD6900 frens: who is this fren? name.imd names, IMD agents, avatars, items, ranks and Worker Frens from Ethereum, for any website, game or agent. No dependencies.",
   "type": "module",
-  "main": "imd-frens.js",
+  "main": "larp.js",
   "exports": {
-    ".": "./imd-frens.js"
+    ".": "./larp.js"
   },
   "files": [
-    "imd-frens.js",
+    "larp.js",
     "README.md",
     "SKILL.md",
     "LICENSE"
   ],
   "keywords": [
+    "larp",
+    "linked-avatar-registry-protocol",
     "imd",
     "imd6900",
-    "larp",
     "name.imd",
-    "ens",
     "avatar",
     "identity",
     "nft",

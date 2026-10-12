@@ -1,13 +1,13 @@
-// imd-frens: who is this fren? One file, no dependencies, for any website, game, bot or agent.
-// Reads LARP (the Linked Avatar Registry Protocol, by the IMD6900 frens) and IMD6900's Worker Frens straight from
+// larp-protocol: the SDK of LARP, the Linked Avatar Registry Protocol, by the IMD6900 frens. Who is this fren? One file,
+// no dependencies, for any website, game, bot or agent. Reads LARP and IMD6900's Worker Frens straight from
 // Ethereum: a wallet's name.imd, its IMD agents (identity.md), their avatars and items, their rank and crew, and the
 // Worker Frens it holds. Read-only: it never asks for a wallet.
 //
-//   import { whois } from "https://cdn.jsdelivr.net/gh/magic0xfrens/imd6900-larp@sdk-v0.1.0/sdk/imd-frens.js";
+//   import { whois } from "https://cdn.jsdelivr.net/npm/larp-protocol@0.1.0/larp.js";   // or: npm i larp-protocol
 //   const fren = await whois("0x…" | "kek.imd" | 15);
 //   fren.name, fren.avatar, fren.agents, fren.frens, fren.rank, fren.isFren
 //
-// Or drop <imd-fren who="kek.imd"></imd-fren> in a page after `import "…/imd-frens.js"`.
+// Or drop <larp-fren who="kek.imd"></larp-fren> in a page after `import "…/larp.js"`.
 // MIT. Source and docs: https://github.com/magic0xfrens/imd6900-larp/tree/main/sdk
 
 /** Where everything is on Ethereum. LARP's four sit at the IMD swarm's planned 0x6900 addresses (src/place/LARPPlan.sol). */
@@ -204,10 +204,10 @@ export async function whois(who) {
   };
 }
 
-/* ── <imd-fren who="kek.imd"></imd-fren>: a badge for any page ─── */
+/* ── <larp-fren who="kek.imd"></larp-fren>: a badge for any page ─ */
 
-if (typeof customElements !== "undefined" && !customElements.get("imd-fren")) {
-  customElements.define("imd-fren", class extends HTMLElement {
+if (typeof customElements !== "undefined" && !customElements.get("larp-fren")) {
+  customElements.define("larp-fren", class extends HTMLElement {
     static observedAttributes = ["who"];
     connectedCallback() { this.render(); }
     attributeChangedCallback() { if (this.isConnected) this.render(); }

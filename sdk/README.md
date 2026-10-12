@@ -1,6 +1,6 @@
-# imd-frens
+# larp-protocol: the LARP SDK
 
-**Who is this fren?** One file, no dependencies, for any website, game, bot or agent. It reads
+**LARP, the Linked Avatar Registry Protocol, by the IMD6900 frens. Who is this fren?** One file, no dependencies, for any website, game, bot or agent. It reads
 [LARP](../README.md) (the Linked Avatar Registry Protocol, by the IMD6900 frens) and IMD6900's Worker Frens straight
 from Ethereum: a wallet's **name.imd**, its **IMD agents** (identity.md), their **avatars** and **items**, their
 **rank** and **crew**, and the **Worker Frens** it holds. Read-only: it never asks for a wallet.
@@ -9,22 +9,22 @@ from Ethereum: a wallet's **name.imd**, its **IMD agents** (identity.md), their 
 
 ```html
 <script type="module">
-  import { whois } from "https://cdn.jsdelivr.net/npm/imd-frens@0.1.0/imd-frens.js";
+  import { whois } from "https://cdn.jsdelivr.net/npm/larp-protocol@0.1.0/larp.js";
   const fren = await whois("kek.imd");      // or a wallet "0x…", or an agent's number: whois(15)
   console.log(fren.name, fren.avatar, fren.isFren, fren.rank?.title);
 </script>
 
 <!-- or just a badge: avatar, name.imd, rank -->
-<script type="module" src="https://cdn.jsdelivr.net/npm/imd-frens@0.1.0/imd-frens.js"></script>
-<imd-fren who="0x…"></imd-fren>
+<script type="module" src="https://cdn.jsdelivr.net/npm/larp-protocol@0.1.0/larp.js"></script>
+<larp-fren who="0x…"></larp-fren>
 ```
 
 ```sh
-npm i imd-frens        # Node 18+, Bun, Deno, any bundler
+npm i larp-protocol        # Node 18+, Bun, Deno, any bundler
 ```
 
 ```js
-import { whois, isFren, resolve, nameOf, avatarOf } from "imd-frens";
+import { whois, isFren, resolve, nameOf, avatarOf } from "larp-protocol";
 if (await isFren(player.wallet)) unlockFrenSkin();   // a game: frens get the fren skin
 ```
 
