@@ -69,4 +69,4 @@ code you load is the code you read.
 | identity.md (IMD agents) | `0x0000eC93127BAA929E58E97dd0095A2BFb38ec1D` |
 | Worker Frens | `0x6900d042460d6bdbe68CE994F4dE36706797CCd4` |
 
-LARP's four land at these addresses when the IMD swarm's launch deploys them (`live()` says when). MIT.
+Live on Ethereum since 2026-10-12: the IMD swarm deployed all four in launch #1436. MIT.
