@@ -3,19 +3,20 @@
 **LARP, the Linked Avatar Registry Protocol, by the IMD6900 frens. Who is this fren?** One file, no dependencies, for any website, game, bot or agent. It reads
 [LARP](https://github.com/magic0xfrens/imd6900-larp) (the Linked Avatar Registry Protocol, by the IMD6900 frens) and IMD6900's Worker Frens straight
 from Ethereum: a wallet's **name.imd**, its **IMD agents** (identity.md), their **avatars** and **items**, their
-**rank** and **crew**, and the **Worker Frens** it holds. Read-only: it never asks for a wallet.
+**rank** and **crew**, the **Worker Frens** it holds, and the **ERC-8004** agent ids IMD gives its agents. Read-only: it
+never asks for a wallet.
 
 ## Use it
 
 ```html
 <script type="module">
-  import { whois } from "https://cdn.jsdelivr.net/npm/larp-protocol@0.1.0/larp.js";
-  const fren = await whois("kek.imd");      // or a wallet "0x…", or an agent's number: whois(15)
+  import { whois } from "https://cdn.jsdelivr.net/npm/larp-protocol@0.2.0/larp.js";
+  const fren = await whois("kek.imd");      // or a wallet "0x…", an agent's number whois(15), or an ERC-8004 agent "agent:51347"
   console.log(fren.name, fren.avatar, fren.isFren, fren.rank?.title);
 </script>
 
 <!-- or just a badge: avatar, name.imd, rank -->
-<script type="module" src="https://cdn.jsdelivr.net/npm/larp-protocol@0.1.0/larp.js"></script>
+<script type="module" src="https://cdn.jsdelivr.net/npm/larp-protocol@0.2.0/larp.js"></script>
 <larp-fren who="0x…"></larp-fren>
 ```
 
@@ -28,14 +29,14 @@ import { whois, isFren, resolve, nameOf, avatarOf } from "larp-protocol";
 if (await isFren(player.wallet)) unlockFrenSkin();   // a game: frens get the fren skin
 ```
 
-Pin a version (`@0.1.0`) and, on a page, add the file's SRI hash (`integrity="sha384-…"`, jsDelivr shows it) so the
+Pin a version (`@0.2.0`) and, on a page, add the file's SRI hash (`integrity="sha384-…"`, jsDelivr shows it) so the
 code you load is the code you read.
 
 ## What you get
 
 | call | returns |
 |---|---|
-| `whois(who)` | `{ address, name, imdId, avatar, agents, workerFrens, isFren, rank: { title, level }, crew, items }` |
+| `whois(who)` | `{ address, name, imdId, agentId, avatar, agents, workerFrens, isFren, rank: { title, level }, crew, items }` |
 | `isFren(wallet)` | `true` if it holds a Worker Fren or an IMD agent |
 | `holdings(wallet)` | `{ workerFrens, agents }` counts |
 | `resolve("kek.imd")` | `{ name, owner, imdId, linked }`, or `null` if nobody holds it |
@@ -44,6 +45,9 @@ code you load is the code you read.
 | `itemsOf(imdId)` | its 8 item slots: `{ slot, collection, tokenId, kind, image }` or `null` |
 | `card(imdId)` | its LARP card: holder, name, face, crew, captain, frens, level, jeet points, title |
 | `agentsOf(wallet)` | the identity.md ids it holds |
+| `agentIdOf(imdId)` | the agent's ERC-8004 id (as IMD's agent card lists it, checked on-chain), or `null` |
+| `bindingOf(agentId)` | an ERC-8004 agent → the NFT it's bound to: `{ agentId, agentRegistry, standard, collection, tokenId, imdId, holder }` |
+| `agentCard(imdId)` | the agent's ERC-8004 registration file, dressed by LARP: its name.imd and avatar as `name` and `image` |
 | `live()` | whether LARP is on this chain yet |
 | `configure({ rpc, ipfs, addresses })` | your own RPC (defaults to a public one) or other addresses |
 
@@ -58,6 +62,30 @@ code you load is the code you read.
 - **Prices and the IMD6900 share are the IMD swarm's**: anyone proposes, a panel of IMD agents judges, anyone executes.
   Every fee is burned: a swarm-voted share (6.9% to start) buys IMD6900 and burns it, the rest goes to IMD's burn.
 
+## ERC-8004: IMD agents are ERC-8004 agents
+
+Every identity.md is also an agent in [ERC-8004](https://eips.ethereum.org/EIPS/eip-8004)'s IdentityRegistry, through
+IMD's adapter, which binds the agent to the NFT (ERC-8217): **the agent follows the NFT, and its holder controls it.**
+identity.md #1122 is ERC-8004 agent 51347, written `eip155:1:0x8004a169fb4a3325136eb29fa0ceb6d2e539a432:51347`.
+
+```js
+await agentIdOf(1122);              // "51347"
+await bindingOf("agent:51347");     // { standard: "ERC721", collection: identity.md, tokenId: "1122", imdId: 1122, holder }
+await whois("agent:51347");         // the agent's name.imd, avatar, rank, crew, holder…
+await agentCard(1122);              // its ERC-8004 card, with its name.imd and LARP avatar
+```
+
+- `bindingOf` trusts a binding only when IMD's adapter holds the agent in the registry; otherwise nothing vouches for it.
+- An NFT can be given more than one agent, so `agentIdOf` takes the one IMD's card lists, and checks it on-chain.
+- **Any NFT can get its own ERC-8004 agent the same way**, a Worker Fren or a name.imd included: its holder calls the
+  adapter's `register(standard, collection, tokenId, agentURI)` (0 = ERC-721, 1 = ERC-1155, 2 = ERC-6909). The agent
+  moves with the NFT when it's sold. `bindingOf` and `whois("agent:…")` read those too (`imdId` is then `null`).
+
+```sh
+cast send 0xde152AfB7db5373F34876E1499fbD893A82dD336 "register(uint8,address,uint256,string)" \
+  0 0x6900d042460d6bdbe68CE994F4dE36706797CCd4 <frenId> "https://…/agent.json"   # your Worker Fren, as an ERC-8004 agent
+```
+
 ## Where
 
 | contract | address |
@@ -68,5 +96,7 @@ code you load is the code you read.
 | LARP burner | `0x69006faEc2D2094e375cAFA5e3C87C5cB2847bef` |
 | identity.md (IMD agents) | `0x0000eC93127BAA929E58E97dd0095A2BFb38ec1D` |
 | Worker Frens | `0x6900d042460d6bdbe68CE994F4dE36706797CCd4` |
+| ERC-8004 IdentityRegistry | `0x8004A169FB4a3325136EB29fA0ceB6D2e539a432` |
+| IMD's ERC-8004 adapter (binder) | `0xde152AfB7db5373F34876E1499fbD893A82dD336` |
 
 Live on Ethereum since 2026-10-12: the IMD swarm deployed all four in launch #1436. MIT.

@@ -1,7 +1,7 @@
 {
   "name": "larp-protocol",
-  "version": "0.1.0",
-  "description": "LARP, the Linked Avatar Registry Protocol, by the IMD6900 frens: who is this fren? name.imd names, IMD agents, avatars, items, ranks and Worker Frens from Ethereum, for any website, game or agent. No dependencies.",
+  "version": "0.2.0",
+  "description": "LARP, the Linked Avatar Registry Protocol, by the IMD6900 frens: who is this fren? name.imd names, IMD agents, avatars, items, ranks and Worker Frens from Ethereum, with ERC-8004 agent ids, for any website, game or agent. No dependencies.",
   "type": "module",
   "main": "larp.js",
   "exports": {
@@ -23,7 +23,9 @@
     "identity",
     "nft",
     "ethereum",
-    "agents"
+    "agents",
+    "erc-8004",
+    "erc-8217"
   ],
   "license": "MIT",
   "repository": {

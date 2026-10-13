@@ -1,11 +1,11 @@
 // larp-protocol: the SDK of LARP, the Linked Avatar Registry Protocol, by the IMD6900 frens. Who is this fren? One file,
 // no dependencies, for any website, game, bot or agent. Reads LARP and IMD6900's Worker Frens straight from
 // Ethereum: a wallet's name.imd, its IMD agents (identity.md), their avatars and items, their rank and crew, and the
-// Worker Frens it holds. Read-only: it never asks for a wallet.
+// Worker Frens it holds, and the ERC-8004 agent ids IMD gives its agents. Read-only: it never asks for a wallet.
 //
-//   import { whois } from "https://cdn.jsdelivr.net/npm/larp-protocol@0.1.0/larp.js";   // or: npm i larp-protocol
-//   const fren = await whois("0x…" | "kek.imd" | 15);
-//   fren.name, fren.avatar, fren.agents, fren.frens, fren.rank, fren.isFren
+//   import { whois } from "https://cdn.jsdelivr.net/npm/larp-protocol@0.2.0/larp.js";   // or: npm i larp-protocol
+//   const fren = await whois("0x…" | "kek.imd" | 15 | "agent:51347");
+//   fren.name, fren.avatar, fren.agentId, fren.agents, fren.workerFrens, fren.rank, fren.isFren
 //
 // Or drop <larp-fren who="kek.imd"></larp-fren> in a page after `import "…/larp.js"`.
 // MIT. Source and docs: https://github.com/magic0xfrens/imd6900-larp/tree/main/sdk
@@ -19,6 +19,8 @@ export const ADDRESSES = {
   identity: "0x0000eC93127BAA929E58E97dd0095A2BFb38ec1D", // identity.md: the 2,000 IMD agents
   workerFrens: "0x6900d042460d6bdbe68CE994F4dE36706797CCd4", // Worker Frens, IMD6900's NFTs
   multicall: "0xcA11bde05977b3631167028862bE2a173976CA11", // Multicall3
+  agentRegistry: "0x8004A169FB4a3325136EB29fA0ceB6D2e539a432", // ERC-8004's IdentityRegistry: agents, as ERC-721s
+  agentBinder: "0xde152AfB7db5373F34876E1499fbD893A82dD336", // IMD's ERC-8004 adapter: binds an agent to an NFT
 };
 const cfg = { rpc: "https://ethereum-rpc.publicnode.com", ipfs: "https://ipfs.io/ipfs/", agentArt: "https://api.imd.fun/agents/by-token/" };
 
@@ -51,6 +53,7 @@ const label32 = (l) => [...new TextEncoder().encode(l)].map((b) => b.toString(16
 const S = { // selectors
   primaryOf: "0x64143788", resolve: "0x5c23bdf5", nameOf: "0x051a2664", cardOf: "0xc22b8d82", faceOf: "0x962144d2", itemOf: "0xcc5723f2",
   ownerOf: "0x6352211e", balanceOf: "0x70a08231", tokenURI: "0xc87b56dd", uri: "0x0e89341c", aggregate3: "0x82ad56cb",
+  bindingOf: "0x4d69ebc2",
 };
 
 /** Many calls in one (Multicall3 aggregate3, each allowed to fail): return data or null each */
@@ -129,6 +132,66 @@ export async function itemsOf(imdId) {
   }));
 }
 
+/* ── ERC-8004: IMD agents are ERC-8004 agents ──────────────────── */
+// IMD registers every identity.md in ERC-8004's IdentityRegistry through its adapter, which binds the agent to the NFT
+// (ERC-8217): the agent follows the NFT, its holder controls it. Any ERC-721, 1155 or 6909 holder can bind one the
+// same way, a Worker Fren or a name.imd included.
+
+const STANDARDS = ["ERC721", "ERC1155", "ERC6909"];
+const registryId = () => `eip155:1:${ADDRESSES.agentRegistry.toLowerCase()}`;
+/** 51347, "51347", "agent:51347" or "eip155:1:0x8004a169…:51347" → 51347n; null if it isn't one, or another registry's */
+function agentIdFrom(ref) {
+  const s = String(ref).trim().toLowerCase(), m = s.match(/^eip155:(\d+):(0x[0-9a-f]{40}):(\d+)$/);
+  if (m) return `eip155:${m[1]}:${m[2]}` === registryId() ? BigInt(m[3]) : null;
+  const n = s.replace(/^agent:/, "");
+  return /^\d+$/.test(n) ? BigInt(n) : null;
+}
+
+/**
+ * An ERC-8004 agent → the NFT it is bound to: { agentId, agentRegistry, standard, collection, tokenId, imdId, holder }.
+ * imdId: the identity.md id when the NFT is an IMD agent, else null. holder: the NFT's holder (ERC-721), who controls
+ * the agent. null when IMD's adapter doesn't hold the agent (then nothing vouches for a binding).
+ */
+export async function bindingOf(agent) {
+  const id = agentIdFrom(agent);
+  if (id == null) return null;
+  const [o, b] = await many([[ADDRESSES.agentRegistry, S.ownerOf + word(id)], [ADDRESSES.agentBinder, S.bindingOf + word(id)]]);
+  if (!o || !b || A(o, 0).toLowerCase() !== ADDRESSES.agentBinder.toLowerCase()) return null;
+  const collection = A(b, 1), tokenId = W(b, 2), standard = STANDARDS[Number(W(b, 0))] || String(W(b, 0));
+  let holder = "";
+  if (standard === "ERC721") { const h = await call(collection, S.ownerOf + word(tokenId)).catch(() => null); holder = h ? A(h, 0) : ""; }
+  return {
+    agentId: id.toString(), agentRegistry: registryId(), standard, collection, tokenId: tokenId.toString(),
+    imdId: collection.toLowerCase() === ADDRESSES.identity.toLowerCase() ? Number(tokenId) : null, holder,
+  };
+}
+
+/** An identity.md id → its ERC-8004 agentId (as IMD's agent card lists it, checked on-chain), or null */
+export async function agentIdOf(imdId) {
+  const c = await fetch(`${cfg.agentArt}${Number(imdId)}.json`).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+  for (const r of Array.isArray(c?.registrations) ? c.registrations : []) {
+    if (String(r?.agentRegistry).toLowerCase() !== registryId()) continue;
+    const b = await bindingOf(r.agentId).catch(() => null); // the card says so: the chain has to agree
+    if (b?.imdId === Number(imdId)) return b.agentId;
+  }
+  return null;
+}
+
+/**
+ * An IMD agent's ERC-8004 registration file (IMD's card), dressed by LARP: its name.imd as `name` and its LARP avatar
+ * as `image` when it has them, and a `larp` entry with both. What an ERC-8004 explorer would show if it read LARP.
+ */
+export async function agentCard(imdId) {
+  const [c, name, f] = await Promise.all([
+    fetch(`${cfg.agentArt}${Number(imdId)}.json`).then((r) => (r.ok ? r.json() : null)).catch(() => null),
+    nameOf(Number(imdId)).catch(() => ""),
+    call(ADDRESSES.larp, S.faceOf + word(imdId)).catch(() => null),
+  ]);
+  if (!c) return null;
+  const face = f && W(f, 3) === 1n ? await artOf(A(f, 1), W(f, 2)) : "";
+  return { ...c, name: name || c.name, image: face || c.image, larp: { name: name || null, avatar: face || null, imdId: Number(imdId) } };
+}
+
 /* ── NFT art: tokenURI / uri → metadata → image, any host ──────── */
 const gate = (u) => String(u || "").replace(/^ipfs:\/\/(ipfs\/)?/, cfg.ipfs).replace(/^ar:\/\//, "https://arweave.net/");
 async function artOf(collection, tokenId, kind = "ERC721") {
@@ -171,14 +234,21 @@ export async function isFren(wallet) {
 /* ── whois: everything at once ─────────────────────────────────── */
 
 /**
- * Who is this? `who` is a wallet (0x…), a name ("kek.imd"), or an IMD agent's number (identity.md id).
- * → { address, name, imdId, avatar, agents, workerFrens, isFren, rank: { title, level }, crew, items }
+ * Who is this? `who` is a wallet (0x…), a name ("kek.imd"), an IMD agent's number (identity.md id), or an ERC-8004
+ * agent ("agent:51347" or "eip155:1:0x8004a169…:51347").
+ * → { address, name, imdId, agentId, avatar, agents, workerFrens, isFren, rank: { title, level }, crew, items }
  *   name: the name.imd (a wallet's primary, or the agent's); imdId: the agent it speaks for (a wallet: its primary's);
- *   avatar: an image URL; agents: how many IMD agents the wallet holds; items: the agent's eight slots.
+ *   agentId: that agent's ERC-8004 id; avatar: an image URL; agents: how many IMD agents the wallet holds; items: the
+ *   agent's eight slots.
  */
 export async function whois(who) {
-  let address = "", imdId = null, name = "";
-  if (typeof who === "number" || /^\d+$/.test(String(who))) {
+  let address = "", imdId = null, name = "", agentId = null;
+  if (/^(agent:\d+|eip155:\d+:0x[0-9a-f]{40}:\d+)$/i.test(String(who).trim())) {
+    const b = await bindingOf(who);
+    if (!b) return null;
+    agentId = b.agentId; address = b.holder; imdId = b.imdId;
+    if (imdId == null) return { ...EMPTY, address, agentId, binding: b, ...(address ? await holdings(address).then(fren) : {}) };
+  } else if (typeof who === "number" || /^\d+$/.test(String(who))) {
     imdId = Number(who);
     const o = await call(ADDRESSES.identity, S.ownerOf + word(imdId)).catch(() => null);
     address = o ? A(o, 0) : "";
@@ -191,18 +261,20 @@ export async function whois(who) {
     if (!r) return null;
     address = r.owner; name = r.name; imdId = r.imdId;
   }
-  const [c, h, avatar, items] = await Promise.all([
+  const [c, h, avatar, items, aid] = await Promise.all([
     imdId != null ? card(imdId).catch(() => null) : null,
     address ? holdings(address) : { workerFrens: 0, agents: 0 },
     imdId != null ? avatarOf(imdId) : "",
     imdId != null ? itemsOf(imdId).catch(() => []) : [],
+    agentId == null && imdId != null ? agentIdOf(imdId).catch(() => null) : agentId,
   ]);
   return {
-    address, imdId, name: name || c?.name || "", avatar,
-    agents: h.agents, workerFrens: h.workerFrens, isFren: h.workerFrens > 0 || h.agents > 0,
+    address, imdId, agentId: aid, name: name || c?.name || "", avatar, ...fren(h),
     rank: c ? { title: c.title, level: c.level } : null, crew: c?.crew || "", items: items || [],
   };
 }
+const fren = (h) => ({ agents: h.agents, workerFrens: h.workerFrens, isFren: h.workerFrens > 0 || h.agents > 0 });
+const EMPTY = { address: "", imdId: null, agentId: null, name: "", avatar: "", agents: 0, workerFrens: 0, isFren: false, rank: null, crew: "", items: [] };
 
 /* ── <larp-fren who="kek.imd"></larp-fren>: a badge for any page ─ */
 
